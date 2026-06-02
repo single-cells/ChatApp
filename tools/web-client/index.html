@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>聊天室 Web 测试客户端</title>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.25rem; }
+    fieldset { margin-bottom: 12px; border: 1px solid #ccc; border-radius: 8px; padding: 12px; }
+    label { display: block; margin: 6px 0 2px; font-size: 0.85rem; color: #444; }
+    input, button { padding: 8px; margin: 4px 0; }
+    input[type=text], input[type=email], input[type=password] { width: 100%; }
+    #log { height: 280px; overflow-y: auto; border: 1px solid #ddd; padding: 8px; background: #fafafa; font-size: 0.9rem; }
+    .msg { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #e8eaf6; }
+    .msg.me { background: #c5cae9; margin-left: 24px; }
+    .err { color: #c62828; }
+    .ok { color: #2e7d32; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  </style>
+</head>
+<body>
+  <h1>聊天室 Web 测试客户端</h1>
+  <p>后端已运行时，用此页面代替 Flutter 测登录、进房、实时消息。</p>
+
+  <fieldset>
+    <legend>连接</legend>
+    <label>API / WebSocket 地址（不要末尾斜杠）</label>
+    <input id="baseUrl" type="text" value="" placeholder="http://电脑IP:3000" />
+    <div class="row">
+      <button type="button" id="btnHealth">检查 /health</button>
+      <span id="healthStatus"></span>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>登录</legend>
+    <label>邮箱</label>
+    <input id="email" type="email" value="win-test@local.dev" />
+    <label>密码</label>
+    <input id="password" type="password" value="123456" />
+    <div class="row">
+      <button type="button" id="btnLogin">登录</button>
+      <button type="button" id="btnRegister">注册</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>房间</legend>
+    <label>房间 ID（可粘贴 test-api 输出的 roomId）</label>
+    <input id="roomId" type="text" placeholder="uuid" />
+    <div class="row">
+      <button type="button" id="btnCreateRoom">创建房间</button>
+      <button type="button" id="btnJoin">进入房间</button>
+      <button type="button" id="btnLeave">离开房间</button>
+    </div>
+    <div>在线人数: <strong id="online">-</strong></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>聊天</legend>
+    <div id="log"></div>
+    <div class="row" style="margin-top:8px">
+      <input id="text" type="text" placeholder="输入消息" style="flex:1" />
+      <button type="button" id="btnSend">发送</button>
+    </div>
+  </fieldset>
+
+  <script>
+    let token = localStorage.getItem('chat_token') || '';
+    let socket = null;
+    let myUserId = '';
+    let currentRoom = '';
+
+    const $ = (id) => document.getElementById(id);
+
+    function defaultApiBase() {
+      const h = location.hostname;
+      if (h && h !== 'localhost' && h !== '127.0.0.1') {
+        return location.protocol + '//' + h + ':3000';
+      }
+      return 'http://localhost:3000';
+    }
+
+    (function initBaseUrl() {
+      const saved = localStorage.getItem('chat_api_base');
+      const def = defaultApiBase();
+      $('baseUrl').value = saved || def;
+      if (saved && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        const savedHost = (() => {
+          try { return new URL(saved).hostname; } catch { return ''; }
+        })();
+        if (savedHost === 'localhost' || savedHost === '127.0.0.1') {
+          $('baseUrl').value = def;
+        }
+      }
+      $('baseUrl').addEventListener('change', () => {
+        localStorage.setItem('chat_api_base', $('baseUrl').value.replace(/\/$/, ''));
+      });
+    })();
+    const log = (html, cls = '') => {
+      const d = document.createElement('div');
+      d.className = 'msg ' + cls;
+      d.innerHTML = html;
+      $('log').appendChild(d);
+      $('log').scrollTop = $('log').scrollHeight;
+    };
+
+    function base() {
+      return $('baseUrl').value.replace(/\/$/, '');
+    }
+
+    async function api(path, opts = {}) {
+      const headers = { ...(opts.headers || {}) };
+      const method = (opts.method || 'GET').toUpperCase();
+      if (method !== 'GET' && method !== 'HEAD') {
+        headers['Content-Type'] = 'application/json';
+      }
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const res = await fetch(base() + path, { ...opts, headers });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { raw: text }; }
+      if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+      return data;
+    }
+
+    $('btnHealth').onclick = async () => {
+      try {
+        const h = await api('/health', { method: 'GET' });
+        $('healthStatus').innerHTML = '<span class="ok">OK ' + h.timestamp + '</span>';
+      } catch (e) {
+        const hint = e.message === 'Failed to fetch'
+          ? '（手机勿用 localhost，应填 http://电脑局域网IP:3000；并确认 API 已启动、Windows 防火墙放行 3000 端口）'
+          : '';
+        $('healthStatus').innerHTML = '<span class="err">' + e.message + hint + '</span>';
+      }
+    };
+
+    async function auth(mode) {
+      try {
+        const body = {
+          email: $('email').value,
+          password: $('password').value,
+        };
+        if (mode === 'register') {
+          body.nickname = 'WebTest';
+        }
+        const data = await api('/auth/' + mode, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        token = data.accessToken;
+        myUserId = data.user.id;
+        localStorage.setItem('chat_token', token);
+        log('<span class="ok">已' + (mode === 'login' ? '登录' : '注册') + ': ' + data.user.nickname + '</span>');
+        connectSocket();
+      } catch (e) {
+        log('<span class="err">' + e.message + '</span>');
+      }
+    };
+
+    $('btnLogin').onclick = () => auth('login');
+    $('btnRegister').onclick = () => auth('register');
+
+    function connectSocket() {
+      if (socket) socket.disconnect();
+      socket = io(base(), {
+        transports: ['websocket', 'polling'],
+        auth: { token },
+      });
+      socket.on('connect', () => log('<span class="ok">WebSocket 已连接</span>'));
+      socket.on('disconnect', () => log('WebSocket 断开'));
+      socket.on('room.ready', (p) => log('已进入房间: ' + p.roomId));
+      socket.on('message.new', (m) => {
+        const me = m.senderId === myUserId ? 'me' : '';
+        const body = m.type === 'text' ? m.content : '[' + m.type + '] ' + (m.attachmentUrl || '');
+        log('<b>' + m.senderName + '</b>: ' + body + ' <small>#' + m.seq + '</small>', me);
+      });
+      socket.on('presence.update', (p) => {
+        if (p.roomId === currentRoom) $('online').textContent = p.count;
+      });
+      socket.on('error', (e) => log('<span class="err">' + JSON.stringify(e) + '</span>'));
+    }
+
+    $('btnCreateRoom').onclick = async () => {
+      try {
+        const r = await api('/rooms', {
+          method: 'POST',
+          body: JSON.stringify({ title: 'Web Test Room' }),
+        });
+        $('roomId').value = r.roomId;
+        log('<span class="ok">已创建房间: ' + r.roomId + '</span>');
+      } catch (e) {
+        log('<span class="err">' + e.message + '</span>');
+      }
+    };
+
+    $('btnJoin').onclick = async () => {
+      const roomId = $('roomId').value.trim();
+      if (!roomId) return alert('请填写 roomId');
+      if (!token) return alert('请先登录');
+      try {
+        await api('/rooms/' + roomId + '/join', { method: 'POST' });
+        const msgs = await api('/rooms/' + roomId + '/messages');
+        $('log').innerHTML = '';
+        msgs.forEach((m) => {
+          const me = m.senderId === myUserId ? 'me' : '';
+          const body = m.type === 'text' ? m.content : '[' + m.type + ']';
+          log('<b>' + m.senderName + '</b>: ' + body, me);
+        });
+        currentRoom = roomId;
+        socket.emit('room.join', { roomId });
+      } catch (e) {
+        log('<span class="err">' + e.message + '</span>');
+      }
+    };
+
+    $('btnLeave').onclick = () => {
+      if (currentRoom && socket) socket.emit('room.leave', { roomId: currentRoom });
+      currentRoom = '';
+      $('online').textContent = '-';
+    };
+
+    $('btnSend').onclick = () => {
+      const roomId = $('roomId').value.trim();
+      const text = $('text').value.trim();
+      if (!roomId || !text || !socket) return;
+      socket.emit('message.send', { roomId, type: 'text', content: text });
+      $('text').value = '';
+    };
+
+    if (token) connectSocket();
+    $('btnHealth').click();
+  </script>
+</body>
+</html>

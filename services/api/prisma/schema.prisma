@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  nickname     String
+  avatarUrl    String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  messages     Message[]
+  memberships  RoomMember[]
+  roomsCreated Room[]        @relation("RoomCreator")
+}
+
+model Room {
+  id        String       @id @default(uuid())
+  title     String
+  createdBy String
+  creator   User         @relation("RoomCreator", fields: [createdBy], references: [id])
+  createdAt DateTime     @default(now())
+  members   RoomMember[]
+  messages  Message[]
+}
+
+model RoomMember {
+  roomId   String
+  userId   String
+  joinedAt DateTime @default(now())
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, userId])
+  @@index([userId, joinedAt(sort: Desc)])
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  roomId         String
+  senderId       String
+  type           String
+  content        String   @default("")
+  attachmentUrl  String?
+  attachmentMeta Json?
+  seq            Int
+  createdAt      DateTime @default(now())
+  room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender         User     @relation(fields: [senderId], references: [id])
+
+  @@unique([roomId, seq])
+  @@index([roomId, createdAt(sort: Desc)])
+}
