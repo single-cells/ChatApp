@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CreateBucketCommand,
+  GetObjectCommand,
   HeadBucketCommand,
   PutObjectCommand,
   S3Client,
@@ -76,11 +77,36 @@ export class StorageService implements OnModuleInit {
     const uploadUrl = await getSignedUrl(this.client, command, {
       expiresIn: 900,
     });
-    const publicBase = this.config.get(
-      'MINIO_PUBLIC_URL',
-      `http://${this.config.get('MINIO_ENDPOINT', 'localhost')}:${this.config.get('MINIO_PORT', '9000')}`,
+    const apiPublic = this.config.get(
+      'API_PUBLIC_URL',
+      `http://localhost:${this.config.get('PORT', '3000')}`,
     );
-    const attachmentUrl = `${publicBase}/${this.bucket}/${key}`;
+    const attachmentUrl = `${apiPublic.replace(/\/$/, '')}/media/object?key=${encodeURIComponent(key)}`;
     return { uploadUrl, attachmentUrl, key };
+  }
+
+  /** Extract S3 object key from legacy MinIO URL or API media URL. */
+  parseObjectKey(urlOrKey: string): string | null {
+    if (urlOrKey.startsWith('rooms/')) return urlOrKey;
+    try {
+      const u = new URL(urlOrKey);
+      const keyParam = u.searchParams.get('key');
+      if (keyParam) return decodeURIComponent(keyParam);
+      const segments = u.pathname.split('/').filter(Boolean);
+      const bucketIdx = segments.indexOf(this.bucket);
+      if (bucketIdx >= 0 && bucketIdx + 1 < segments.length) {
+        return segments.slice(bucketIdx + 1).join('/');
+      }
+      if (segments[0] === 'rooms') return segments.join('/');
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  async getObject(key: string) {
+    return this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
   }
 }

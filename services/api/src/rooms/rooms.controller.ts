@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -29,6 +30,21 @@ export class RoomsController {
     return this.rooms.recent(req.user.userId);
   }
 
+  @Get('all')
+  listAll() {
+    return this.rooms.listAll();
+  }
+
+  @Get('created-quota')
+  createdQuota(@Req() req: { user: { userId: string } }) {
+    return this.rooms.createdQuota(req.user.userId);
+  }
+
+  @Delete('purge-all')
+  purgeAll() {
+    return this.rooms.purgeAllRooms();
+  }
+
   @Get(':roomId')
   findOne(@Param('roomId') roomId: string) {
     return this.rooms.findOne(roomId);
@@ -40,5 +56,21 @@ export class RoomsController {
     @Req() req: { user: { userId: string } },
   ) {
     return this.rooms.join(roomId, req.user.userId);
+  }
+
+  @Post(':roomId/leave')
+  leave(
+    @Param('roomId') roomId: string,
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.rooms.leaveRoom(roomId, req.user.userId);
+  }
+
+  @Delete(':roomId')
+  remove(
+    @Param('roomId') roomId: string,
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.rooms.deleteRoom(roomId, req.user.userId);
   }
 }

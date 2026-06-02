@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'bootstrap.dart';
 import 'router/app_router.dart';
+import 'theme/app_theme.dart';
 
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
@@ -22,10 +23,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final router = ref.watch(routerProvider);
     return MaterialApp.router(
       title: '聊天室',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light(),
       routerConfig: router,
     );
   }

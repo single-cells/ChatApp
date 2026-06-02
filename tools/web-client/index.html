@@ -36,15 +36,13 @@
   </fieldset>
 
   <fieldset>
-    <legend>登录</legend>
-    <label>邮箱</label>
-    <input id="email" type="email" value="win-test@local.dev" />
-    <label>密码</label>
-    <input id="password" type="password" value="123456" />
+    <legend>登录（设备 ID）</legend>
+    <label>昵称（首次必填）</label>
+    <input id="nickname" type="text" value="WebTest" placeholder="昵称" />
     <div class="row">
-      <button type="button" id="btnLogin">登录</button>
-      <button type="button" id="btnRegister">注册</button>
+      <button type="button" id="btnLogin">进入</button>
     </div>
+    <p style="font-size:0.8rem;color:#666;margin:8px 0 0">deviceId 保存在本浏览器 localStorage</p>
   </fieldset>
 
   <fieldset>
@@ -139,31 +137,39 @@
       }
     };
 
-    async function auth(mode) {
+    function getOrCreateDeviceId() {
+      let id = localStorage.getItem('chat_device_id');
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('chat_device_id', id);
+      }
+      return id;
+    }
+
+    async function authDevice() {
       try {
-        const body = {
-          email: $('email').value,
-          password: $('password').value,
-        };
-        if (mode === 'register') {
-          body.nickname = 'WebTest';
-        }
-        const data = await api('/auth/' + mode, {
+        const nickname = $('nickname').value.trim();
+        const body = { deviceId: getOrCreateDeviceId() };
+        if (nickname) body.nickname = nickname;
+        const data = await api('/auth/device', {
           method: 'POST',
           body: JSON.stringify(body),
         });
+        if (data.needsNickname) {
+          log('<span class="err">请先填写昵称</span>');
+          return;
+        }
         token = data.accessToken;
         myUserId = data.user.id;
         localStorage.setItem('chat_token', token);
-        log('<span class="ok">已' + (mode === 'login' ? '登录' : '注册') + ': ' + data.user.nickname + '</span>');
+        log('<span class="ok">已进入: ' + data.user.nickname + '</span>');
         connectSocket();
       } catch (e) {
         log('<span class="err">' + e.message + '</span>');
       }
     };
 
-    $('btnLogin').onclick = () => auth('login');
-    $('btnRegister').onclick = () => auth('register');
+    $('btnLogin').onclick = () => authDevice();
 
     function connectSocket() {
       if (socket) socket.disconnect();

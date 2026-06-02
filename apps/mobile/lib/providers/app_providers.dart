@@ -19,3 +19,9 @@ final socketProvider = Provider((ref) {
 final authUserProvider = StateProvider<AuthUser?>((ref) => null);
 
 final accessTokenProvider = StateProvider<String?>((ref) => null);
+
+/// False until cold-start auth (token restore or device login) finishes.
+final authReadyProvider = StateProvider<bool>((ref) => false);
+
+/// True when device is known but user must pick a nickname on first launch.
+final needsNicknameProvider = StateProvider<bool>((ref) => false);

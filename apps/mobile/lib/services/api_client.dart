@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
+import '../models/auth_session.dart';
 import '../models/message.dart';
 import '../models/room.dart';
 import 'storage_service.dart';
@@ -29,28 +30,15 @@ class ApiClient {
   final StorageService _storage;
   late final Dio _dio;
 
-  Future<Map<String, dynamic>> register({
-    required String email,
-    required String password,
+  Future<DeviceAuthResult> deviceLogin({
+    required String deviceId,
     String? nickname,
   }) async {
-    final res = await _dio.post('/auth/register', data: {
-      'email': email,
-      'password': password,
-      if (nickname != null) 'nickname': nickname,
+    final res = await _dio.post('/auth/device', data: {
+      'deviceId': deviceId,
+      if (nickname != null && nickname.isNotEmpty) 'nickname': nickname,
     });
-    return res.data as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> login({
-    required String email,
-    required String password,
-  }) async {
-    final res = await _dio.post('/auth/login', data: {
-      'email': email,
-      'password': password,
-    });
-    return res.data as Map<String, dynamic>;
+    return DeviceAuthResult.fromJson(res.data as Map<String, dynamic>);
   }
 
   Future<RoomSummary> createRoom(String title) async {
@@ -67,12 +55,37 @@ class ApiClient {
     await _dio.post('/rooms/$roomId/join');
   }
 
+  Future<void> leaveRoom(String roomId) async {
+    await _dio.post('/rooms/$roomId/leave');
+  }
+
+  Future<void> deleteRoom(String roomId) async {
+    await _dio.delete('/rooms/$roomId');
+  }
+
   Future<List<RoomSummary>> recentRooms() async {
     final res = await _dio.get('/rooms/recent');
     final list = res.data as List<dynamic>;
     return list
         .map((e) => RoomSummary.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<List<RoomSummary>> listAllRooms() async {
+    final res = await _dio.get('/rooms/all');
+    final list = res.data as List<dynamic>;
+    return list
+        .map((e) => RoomSummary.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<({int count, int max})> createdRoomQuota() async {
+    final res = await _dio.get('/rooms/created-quota');
+    final data = res.data as Map<String, dynamic>;
+    return (
+      count: data['count'] as int,
+      max: data['max'] as int,
+    );
   }
 
   Future<List<ChatMessage>> fetchMessages(

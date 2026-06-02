@@ -25,7 +25,6 @@ export class WsJwtGuard implements CanActivate {
         secret: this.config.get('JWT_SECRET', 'dev-secret'),
       });
       client.data.userId = payload.sub;
-      client.data.email = payload.email;
       return true;
     } catch {
       throw new WsException('Unauthorized');

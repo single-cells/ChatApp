@@ -1,4 +1,5 @@
-# Windows 单机开发环境一键启动（需 Docker Desktop）
+# Full dev setup: Docker Compose + prisma + API (watch).
+# If Docker is already up, use .\scripts\start-api.ps1 + .\scripts\run-flutter.ps1 instead.
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
@@ -37,7 +38,7 @@ if (-not (Test-Path node_modules)) {
 }
 npx prisma db push
 
-Write-Host "启动 API (http://localhost:3000，局域网 http://<本机IP>:3000)..."
-Write-Host "手机浏览器测试: 另开终端运行 .\scripts\run-web-client.ps1"
-Write-Host "另开终端运行 Flutter 见 docs/WINDOWS_LOCAL_TEST.md"
+Write-Host "启动 API (http://localhost:3000)..."
+Write-Host "日常开发(Docker已起): 另开终端 .\scripts\start-api.ps1 与 .\scripts\run-flutter.ps1"
+Write-Host "Web 测试页: .\scripts\run-web-client.ps1"
 npm run start:dev

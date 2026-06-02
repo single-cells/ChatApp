@@ -12,19 +12,26 @@ try {
     exit 1
 }
 
-Write-Host "注册测试用户..."
+$deviceIdPath = Join-Path $env:TEMP "chat-test-device-id.txt"
+if (Test-Path $deviceIdPath) {
+    $deviceId = (Get-Content $deviceIdPath -Raw).Trim()
+} else {
+    $deviceId = [guid]::NewGuid().ToString()
+    Set-Content -Path $deviceIdPath -Value $deviceId -NoNewline
+    Write-Host "新测试 deviceId 已写入 $deviceIdPath"
+}
+
+Write-Host "设备登录..."
 $body = @{
-    email    = "win-test@local.dev"
-    password = "123456"
+    deviceId = $deviceId
     nickname = "Windows测试"
 } | ConvertTo-Json
-try {
-    $reg = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/auth/register" `
-        -ContentType "application/json" -Body $body
-} catch {
-    Write-Host "注册失败（可能已存在），尝试登录..."
-    $reg = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/auth/login" `
-        -ContentType "application/json" -Body (@{ email = "win-test@local.dev"; password = "123456" } | ConvertTo-Json)
+$reg = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/auth/device" `
+    -ContentType "application/json" -Body $body
+
+if ($reg.needsNickname) {
+    Write-Host "需要昵称，请检查脚本" -ForegroundColor Red
+    exit 1
 }
 
 $token = $reg.accessToken

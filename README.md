@@ -6,17 +6,46 @@ Flutter 客户端 + NestJS API。多房间按 `roomId` 进入，支持文字/图
 
 - `apps/mobile` — Flutter
 - `services/api` — NestJS + Prisma + Socket.io
+- [`DEPLOY.md`](DEPLOY.md) — 服务器部署 + APK 导出
 - `docs/DEVELOPMENT_PLAN.md` — 完整方案
+- `docs/DEV_WORKFLOW.md` — 边开发边调试（热重载、三终端、VS Code）
+
+## 边开发边调试
+
+详见 **[docs/DEV_WORKFLOW.md](docs/DEV_WORKFLOW.md)**。
+
+**一键测试**（仅 API + Flutter，不启动数据库等容器；需已自行 `docker compose up -d`）：
+
+```powershell
+.\start-test.ps1
+```
+
+或双击 `start-test.cmd`。Chrome / USB 真机：`.\start-test.ps1 -Device chrome` / `-Device usb`
+
+**Docker 已运行**时，也可手动开两个终端：
+
+```powershell
+.\scripts\start-api.ps1      # 终端 1：API
+.\scripts\run-flutter.ps1    # 终端 2：Flutter Windows
+```
 
 ## Windows 单机测试
 
-详见 **[docs/WINDOWS_LOCAL_TEST.md](docs/WINDOWS_LOCAL_TEST.md)**，或运行：
+详见 **[docs/WINDOWS_LOCAL_TEST.md](docs/WINDOWS_LOCAL_TEST.md)**。首次或需拉起容器：
 
 ```powershell
 .\scripts\start-dev.ps1
 ```
 
-（需先启动 **Docker Desktop**）
+（需 **Docker Desktop**）
+
+## 清理聊天室数据
+
+```powershell
+.\scripts\clear-rooms.ps1
+```
+
+或在 `services/api` 下执行 `npm run rooms:clear`（删除全部房间及消息，保留用户账号）。
 
 ## 快速开始
 
@@ -52,7 +81,7 @@ flutter run --dart-define=API_BASE_URL=http://localhost:3000 --dart-define=WS_UR
 
 | 方法 | 路径 |
 |------|------|
-| POST | `/auth/register`, `/auth/login` |
+| POST | `/auth/device`（主登录）, `/auth/login`, `/auth/register`（调试） |
 | POST | `/rooms` |
 | GET | `/rooms/:roomId`, `/rooms/recent` |
 | POST | `/rooms/:roomId/join` |

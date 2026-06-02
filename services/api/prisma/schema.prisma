@@ -9,8 +9,9 @@ datasource db {
 
 model User {
   id           String        @id @default(uuid())
-  email        String        @unique
-  passwordHash String
+  deviceId     String?       @unique
+  email        String?       @unique
+  passwordHash String?
   nickname     String
   avatarUrl    String?
   createdAt    DateTime      @default(now())

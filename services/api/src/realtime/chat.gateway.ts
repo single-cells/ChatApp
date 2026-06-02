@@ -6,6 +6,7 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -13,6 +14,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { WsJwtGuard } from '../auth/ws-jwt.guard';
 import { JwtPayload } from '../auth/auth.service';
+import { RoomRealtimeNotifier } from '../common/room-realtime.notifier';
 import { RedisService } from '../common/redis.service';
 import { MessagesService } from '../messages/messages.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,7 +36,9 @@ interface MessageSendPayload {
   cors: { origin: '*' },
   transports: ['websocket', 'polling'],
 })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway
+  implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit
+{
   private readonly logger = new Logger(ChatGateway.name);
 
   @WebSocketServer()
@@ -47,7 +51,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private prisma: PrismaService,
     private jwt: JwtService,
     private config: ConfigService,
+    private roomNotifier: RoomRealtimeNotifier,
   ) {}
+
+  afterInit() {
+    this.roomNotifier.setServer(this.server);
+  }
 
   async handleConnection(client: Socket) {
     const token =
@@ -62,7 +71,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         secret: this.config.get('JWT_SECRET', 'dev-secret'),
       });
       client.data.userId = payload.sub;
-      client.data.email = payload.email;
     } catch {
       client.disconnect();
     }
