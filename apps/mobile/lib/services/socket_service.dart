@@ -20,7 +20,7 @@ class SocketService {
 
   bool get isConnected => _socket?.connected ?? false;
 
-  Future<void> connect(String token) async {
+  Future<void> connect(String token, {String? deviceId}) async {
     if (_socket?.connected == true) return;
     _socket?.dispose();
     _coreListenersAttached = false;
@@ -31,7 +31,10 @@ class SocketService {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .enableAutoConnect()
-          .setAuth({'token': token})
+          .setAuth({
+            'token': token,
+            if (deviceId != null) 'deviceId': deviceId,
+          })
           .build(),
     );
     _socket!.onConnect((_) {

@@ -7,6 +7,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model DeviceCredential {
+  deviceId   String   @id
+  publicKey  String
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @updatedAt
+}
+
 model User {
   id           String        @id @default(uuid())
   deviceId     String?       @unique

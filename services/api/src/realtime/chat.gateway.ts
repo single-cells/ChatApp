@@ -70,7 +70,23 @@ export class ChatGateway
       const payload = await this.jwt.verifyAsync<JwtPayload>(token, {
         secret: this.config.get('JWT_SECRET', 'dev-secret'),
       });
+      if (payload.typ && payload.typ !== 'access') {
+        client.disconnect();
+        return;
+      }
+      const handshakeDeviceId = client.handshake.auth?.deviceId as
+        | string
+        | undefined;
+      if (
+        payload.did &&
+        handshakeDeviceId &&
+        handshakeDeviceId !== payload.did
+      ) {
+        client.disconnect();
+        return;
+      }
       client.data.userId = payload.sub;
+      client.data.deviceId = payload.did;
     } catch {
       client.disconnect();
     }

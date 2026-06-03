@@ -15,6 +15,8 @@ class StorageService {
 
   Future<String?> getAccessToken() => _storage.read(key: 'access_token');
 
+  Future<String?> getRefreshToken() => _storage.read(key: 'refresh_token');
+
   /// Stable per-install identity for device login.
   Future<String> getOrCreateDeviceId() async {
     final existing = await _storage.read(key: _deviceIdKey);

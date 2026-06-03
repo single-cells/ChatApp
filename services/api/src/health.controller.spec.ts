@@ -4,6 +4,6 @@ describe('HealthController', () => {
   it('returns ok', () => {
     const c = new HealthController();
     const r = c.health();
-    expect(r.status).toBe('ok');
+    expect(r.ok).toBe(true);
   });
 });

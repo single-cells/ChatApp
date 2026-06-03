@@ -7,6 +7,18 @@ export class DeviceAuthDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
-  @MaxLength(32)
+  @MaxLength(64)
   nickname?: string;
+
+  @IsOptional()
+  @IsString()
+  publicKey?: string;
+
+  @IsOptional()
+  @IsString()
+  deviceSignature?: string;
+
+  @IsOptional()
+  @IsString()
+  challengeId?: string;
 }

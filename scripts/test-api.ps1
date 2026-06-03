@@ -3,6 +3,11 @@ $ErrorActionPreference = "Stop"
 $ApiDir = "F:\_app\services\api"
 Set-Location $ApiDir
 
+$skipSign = $env:CLIENT_SIGN_SKIP
+if (-not $skipSign) {
+    $skipSign = "true"
+}
+
 Write-Host "检查 http://localhost:3000/health ..."
 try {
     $h = Invoke-RestMethod -Uri "http://localhost:3000/health" -TimeoutSec 3
@@ -21,13 +26,18 @@ if (Test-Path $deviceIdPath) {
     Write-Host "新测试 deviceId 已写入 $deviceIdPath"
 }
 
-Write-Host "设备登录..."
-$body = @{
-    deviceId = $deviceId
-    nickname = "Windows测试"
-} | ConvertTo-Json
-$reg = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/auth/device" `
-    -ContentType "application/json" -Body $body
+if ($skipSign -eq "true") {
+    Write-Host "CLIENT_SIGN_SKIP=true — 跳过 challenge/签名"
+    $body = @{
+        deviceId = $deviceId
+        nickname = "Windows测试"
+    } | ConvertTo-Json
+    $reg = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/auth/device" `
+        -ContentType "application/json" -Body $body
+} else {
+    Write-Host "设备登录（需 Ed25519 签名，请用 Flutter 客户端测试）"
+    exit 0
+}
 
 if ($reg.needsNickname) {
     Write-Host "需要昵称，请检查脚本" -ForegroundColor Red
@@ -35,7 +45,10 @@ if ($reg.needsNickname) {
 }
 
 $token = $reg.accessToken
-$headers = @{ Authorization = "Bearer $token" }
+$headers = @{
+    Authorization = "Bearer $token"
+    "X-Device-Id"   = $deviceId
+}
 
 $room = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/rooms" `
     -Headers $headers -ContentType "application/json" -Body '{"title":"Windows Test Room"}'

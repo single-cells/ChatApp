@@ -25,6 +25,17 @@ export class WsJwtGuard implements CanActivate {
         secret: this.config.get('JWT_SECRET', 'dev-secret'),
       });
       client.data.userId = payload.sub;
+      client.data.deviceId = payload.did;
+      const handshakeDeviceId = client.handshake.auth?.deviceId as
+        | string
+        | undefined;
+      if (
+        payload.did &&
+        handshakeDeviceId &&
+        handshakeDeviceId !== payload.did
+      ) {
+        throw new WsException('Device binding mismatch');
+      }
       return true;
     } catch {
       throw new WsException('Unauthorized');

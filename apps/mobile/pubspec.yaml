@@ -27,6 +27,8 @@ dependencies:
   http: ^1.2.2
   mime: ^2.0.0
   flutter_svg: ^2.0.17
+  cryptography: ^2.7.0
+  crypto: ^3.0.6
 
 dependency_overrides:
   record_linux: ^1.2.1

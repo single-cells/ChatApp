@@ -3,6 +3,8 @@ import '../config/app_config.dart';
 import '../models/auth_session.dart';
 import '../models/message.dart';
 import '../models/room.dart';
+import 'device_key_service.dart';
+import 'request_signer.dart';
 import 'storage_service.dart';
 
 class ApiClient {
@@ -14,6 +16,8 @@ class ApiClient {
         receiveTimeout: const Duration(seconds: 15),
       ),
     );
+    _deviceKeys = DeviceKeyService();
+    _signer = RequestSigner(_dio, _deviceKeys);
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
@@ -21,6 +25,8 @@ class ApiClient {
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
           }
+          final deviceId = await _storage.getOrCreateDeviceId();
+          options.headers['X-Device-Id'] = deviceId;
           handler.next(options);
         },
       ),
@@ -29,16 +35,45 @@ class ApiClient {
 
   final StorageService _storage;
   late final Dio _dio;
+  late final DeviceKeyService _deviceKeys;
+  late final RequestSigner _signer;
+
 
   Future<DeviceAuthResult> deviceLogin({
     required String deviceId,
     String? nickname,
   }) async {
-    final res = await _dio.post('/auth/device', data: {
-      'deviceId': deviceId,
-      if (nickname != null && nickname.isNotEmpty) 'nickname': nickname,
-    });
+    final prepared = await _signer.prepareDeviceLogin(
+      deviceId: deviceId,
+      nickname: nickname,
+    );
+    final res = await _dio.post(
+      '/auth/device',
+      data: prepared.body,
+      options: Options(headers: prepared.headers),
+    );
     return DeviceAuthResult.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  Future<bool> refreshSession() async {
+    final refreshToken = await _storage.getRefreshToken();
+    if (refreshToken == null) return false;
+    try {
+      final deviceId = await _storage.getOrCreateDeviceId();
+      final res = await _dio.post(
+        '/auth/refresh',
+        data: {'refreshToken': refreshToken},
+        options: Options(headers: {'X-Device-Id': deviceId}),
+      );
+      final data = res.data as Map<String, dynamic>;
+      await _storage.saveTokens(
+        accessToken: data['accessToken'] as String,
+        refreshToken: data['refreshToken'] as String,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<RoomSummary> createRoom(String title) async {

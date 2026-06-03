@@ -7,4 +7,8 @@ class AppConfig {
     'WS_URL',
     defaultValue: 'http://localhost:3000',
   );
+  static const clientAppSecret = String.fromEnvironment(
+    'CLIENT_APP_SECRET',
+    defaultValue: 'dev-client-secret',
+  );
 }

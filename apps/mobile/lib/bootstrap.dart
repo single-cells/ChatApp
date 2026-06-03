@@ -11,7 +11,11 @@ Future<void> applyAuthSession(WidgetRef ref, DeviceAuthSuccess session) async {
   ref.read(accessTokenProvider.notifier).state = session.accessToken;
   ref.read(authUserProvider.notifier).state = session.user;
   ref.read(needsNicknameProvider.notifier).state = false;
-  await ref.read(socketProvider).connect(session.accessToken);
+  final deviceId = await ref.read(storageProvider).getOrCreateDeviceId();
+  await ref.read(socketProvider).connect(
+    session.accessToken,
+    deviceId: deviceId,
+  );
 }
 
 /// Restore JWT or sign in with persisted device id on cold start.
@@ -26,9 +30,30 @@ Future<void> bootstrapAuth(WidgetRef ref) async {
         final user = await api.me();
         ref.read(authUserProvider.notifier).state = user;
         ref.read(needsNicknameProvider.notifier).state = false;
-        await ref.read(socketProvider).connect(token);
+        final deviceId = await storage.getOrCreateDeviceId();
+        await ref.read(socketProvider).connect(token, deviceId: deviceId);
         return;
       } catch (_) {
+        final api = ref.read(apiProvider);
+        if (await api.refreshSession()) {
+          token = await storage.getAccessToken();
+          if (token != null) {
+            ref.read(accessTokenProvider.notifier).state = token;
+            try {
+              final user = await api.me();
+              ref.read(authUserProvider.notifier).state = user;
+              ref.read(needsNicknameProvider.notifier).state = false;
+              final deviceId = await storage.getOrCreateDeviceId();
+              await ref.read(socketProvider).connect(
+                token,
+                deviceId: deviceId,
+              );
+              return;
+            } catch (_) {
+              /* fall through to clear */
+            }
+          }
+        }
         await storage.clearAuth();
         ref.read(accessTokenProvider.notifier).state = null;
         token = null;
