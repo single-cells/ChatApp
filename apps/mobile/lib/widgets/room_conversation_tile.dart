@@ -8,19 +8,27 @@ class RoomConversationTile extends StatelessWidget {
     super.key,
     required this.room,
     required this.onTap,
+    this.highlightAsOwned = false,
+    this.unreadCount = 0,
   });
 
   final RoomSummary room;
   final VoidCallback onTap;
+  final bool highlightAsOwned;
+  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
     final time = formatRoomListTime(room.lastMessageAt);
+    final bg = highlightAsOwned
+        ? AppTheme.ownedRoomListBackground
+        : AppTheme.listBackground;
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: ColoredBox(
-        color: AppTheme.listBackground,
+        color: bg,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
@@ -39,14 +47,47 @@ class RoomConversationTile extends StatelessWidget {
                             room.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: highlightAsOwned
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
                               color: AppTheme.titleBlack,
                             ),
                           ),
                         ),
-                        if (time.isNotEmpty)
+                        if (highlightAsOwned) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '我创建',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: AppTheme.primaryDark,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (unreadCount > 0)
+                          Container(
+                            width: 8,
+                            height: 8,
+                            margin: const EdgeInsets.only(left: 6),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFA5151),
+                              shape: BoxShape.circle,
+                            ),
+                          )
+                        else if (time.isNotEmpty)
                           Text(
                             time,
                             style: const TextStyle(

@@ -19,23 +19,27 @@ model User {
   deviceId     String?       @unique
   email        String?       @unique
   passwordHash String?
-  nickname     String
-  avatarUrl    String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  nickname           String
+  nicknameChangedAt  DateTime?
+  avatarUrl          String?
+  lastLoginIp        String?
+  lastLoginGeo       String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
   messages     Message[]
   memberships  RoomMember[]
   roomsCreated Room[]        @relation("RoomCreator")
 }
 
 model Room {
-  id        String       @id @default(uuid())
-  title     String
-  createdBy String
-  creator   User         @relation("RoomCreator", fields: [createdBy], references: [id])
-  createdAt DateTime     @default(now())
-  members   RoomMember[]
-  messages  Message[]
+  id           String       @id @default(uuid())
+  title        String
+  passwordHash String?
+  createdBy    String
+  creator      User         @relation("RoomCreator", fields: [createdBy], references: [id])
+  createdAt    DateTime     @default(now())
+  members      RoomMember[]
+  messages     Message[]
 }
 
 model RoomMember {

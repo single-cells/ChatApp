@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.chat_mobile"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -30,6 +30,9 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Avoid R8 NPE with flutter_webrtc / livekit on some JDK+AGP combos
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

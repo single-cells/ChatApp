@@ -9,6 +9,7 @@ class RoomSummary {
     this.lastMessageAt,
     this.creatorNickname,
     this.createdBy,
+    this.hasPassword = false,
   });
 
   final String roomId;
@@ -20,6 +21,7 @@ class RoomSummary {
   final DateTime? lastMessageAt;
   final String? creatorNickname;
   final String? createdBy;
+  final bool hasPassword;
 
   factory RoomSummary.fromJson(Map<String, dynamic> json) {
     DateTime? lastAt;
@@ -37,6 +39,7 @@ class RoomSummary {
       lastMessageAt: lastAt,
       creatorNickname: json['creatorNickname'] as String?,
       createdBy: json['createdBy'] as String?,
+      hasPassword: json['hasPassword'] as bool? ?? false,
     );
   }
 
@@ -64,12 +67,14 @@ class AuthUser {
     required this.nickname,
     this.email,
     this.avatarUrl,
+    this.canChangeNicknameToday = true,
   });
 
   final String id;
   final String? email;
   final String nickname;
   final String? avatarUrl;
+  final bool canChangeNicknameToday;
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     return AuthUser(
@@ -77,6 +82,7 @@ class AuthUser {
       email: json['email'] as String?,
       nickname: json['nickname'] as String,
       avatarUrl: json['avatarUrl'] as String?,
+      canChangeNicknameToday: json['canChangeNicknameToday'] as bool? ?? true,
     );
   }
 }

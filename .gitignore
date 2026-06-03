@@ -16,3 +16,13 @@ services/api/prisma/migrations/
 .idea/
 .vscode/
 开发记录/
+
+# Docker image exports
+dist/*.tar
+dist/*.tar.gz
+
+# Local/server deploy bundle (secrets, images, .env)
+deploy/
+
+# Release APK output
+deploy_apk/

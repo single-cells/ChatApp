@@ -1,6 +1,16 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
+import { extractClientIp } from './client-ip';
 import {
   ClientSignChallengeService,
   ClientChallenge,
@@ -12,6 +22,7 @@ import { AuthService } from './auth.service';
 import { DeviceAuthDto } from './dto/device-auth.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateNicknameDto } from './dto/update-nickname.dto';
 import { RefreshJwtGuard } from './refresh-jwt.guard';
 
 @Controller('auth')
@@ -30,21 +41,21 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  register(@Body() dto: RegisterDto, @Req() req: Request) {
+    return this.auth.register(dto, extractClientIp(req));
   }
 
   @Public()
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  login(@Body() dto: LoginDto, @Req() req: Request) {
+    return this.auth.login(dto, extractClientIp(req));
   }
 
   @Public()
   @UseGuards(ClientSignGuard)
   @Post('device')
-  device(@Body() dto: DeviceAuthDto) {
-    return this.auth.deviceAuth(dto);
+  device(@Body() dto: DeviceAuthDto, @Req() req: Request) {
+    return this.auth.deviceAuth(dto, extractClientIp(req));
   }
 
   @Public()
@@ -61,20 +72,38 @@ export class AuthController {
       req.user.userId,
       req.refreshJti,
       req.user.deviceId,
+      extractClientIp(req),
     );
   }
 
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   async me(@Req() req: { user: { userId: string } }) {
-    return this.prisma.user.findUniqueOrThrow({
+    const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: req.user.userId },
       select: {
         id: true,
         nickname: true,
         avatarUrl: true,
         email: true,
+        nicknameChangedAt: true,
       },
     });
+    return this.auth.toMeProfile(user);
+  }
+
+  @Patch('nickname')
+  @UseGuards(AuthGuard('jwt'))
+  updateNickname(
+    @Req() req: { user: { userId: string } },
+    @Body() dto: UpdateNicknameDto,
+  ) {
+    return this.auth.updateNickname(req.user.userId, dto.nickname);
+  }
+
+  @Delete('account')
+  @UseGuards(AuthGuard('jwt'))
+  deleteAccount(@Req() req: { user: { userId: string } }) {
+    return this.auth.deleteAccount(req.user.userId);
   }
 }

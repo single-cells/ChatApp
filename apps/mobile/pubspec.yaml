@@ -1,7 +1,7 @@
 name: chat_mobile
 description: Multi-room chat app
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.2+3
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -29,6 +29,9 @@ dependencies:
   flutter_svg: ^2.0.17
   cryptography: ^2.7.0
   crypto: ^3.0.6
+  package_info_plus: ^8.3.0
+  open_filex: ^4.7.0
+  app_badge_plus: ^1.2.3
 
 dependency_overrides:
   record_linux: ^1.2.1

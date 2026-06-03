@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,7 +10,10 @@ import '../providers/app_providers.dart';
 import '../services/socket_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/defer_set_state.dart';
+import '../providers/unread_provider.dart';
+import '../utils/room_open_errors.dart';
 import '../widgets/auth_network_image.dart';
+import '../widgets/room_password_dialog.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({
@@ -35,6 +39,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   int _onlineCount = 0;
   bool _loading = true;
   bool _isCreator = false;
+  bool _roomHasPassword = false;
   bool _roomActionBusy = false;
   bool _inputHasText = false;
   Map<String, String>? _authHeaders;
@@ -66,11 +71,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _socket.onMessageNew(_onMessageNew);
     _socket.onPresence(_onPresenceUpdate);
     _socket.onRoomDeleted(_onRoomDeleted);
+    ref.read(unreadProvider.notifier).setActiveRoom(widget.roomId);
     _initChat();
   }
 
   @override
   void dispose() {
+    ref.read(unreadProvider.notifier).setActiveRoom(null);
     _socket.offMessageNew(_onMessageNew);
     _socket.offPresence(_onPresenceUpdate);
     _socket.offRoomDeleted(_onRoomDeleted);
@@ -99,23 +106,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       if (!mounted) return;
       final room = await api.getRoom(widget.roomId);
       if (!mounted) return;
-      await api.joinRoom(widget.roomId);
-      if (!mounted) return;
-      final messages = await api.fetchMessages(widget.roomId);
+      try {
+        await api.joinRoom(widget.roomId);
+      } catch (e) {
+        if (!mounted) return;
+        if (isRoomPasswordRequired(e)) {
+          final pwd = await showRoomPasswordDialog(context);
+          if (pwd == null || !mounted) {
+            context.pop();
+            return;
+          }
+          await api.joinRoom(widget.roomId, password: pwd);
+        } else {
+          rethrow;
+        }
+      }
       if (!mounted) return;
       _socket.joinRoom(widget.roomId);
+      final messages = await api.fetchMessages(widget.roomId);
+      if (!mounted) return;
       final userId = ref.read(authUserProvider)?.id;
       setState(() {
         _roomTitle = room.title;
         _messages = messages;
         _isCreator =
             userId != null && room.createdBy != null && room.createdBy == userId;
+        _roomHasPassword = room.hasPassword;
         _loading = false;
       });
+      ref.read(unreadProvider.notifier).markRoomRead(widget.roomId);
       _scrollBottom();
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+      if (isRoomMissingError(e)) {
+        try {
+          await api.dismissRoomMembership(widget.roomId);
+        } catch (_) {}
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('该聊天室已不存在，已从最近列表移除')),
+        );
+        context.pop();
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('加载失败: $e')),
       );
@@ -249,20 +283,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }) async {
     try {
       final api = ref.read(apiProvider);
-      final presign = await api.presignUpload(
+      final uploaded = await api.uploadMedia(
         roomId: widget.roomId,
+        bytes: bytes,
         kind: kind,
         mime: mime,
         filename: filename,
       );
-      await api.uploadFile(
-        presign['uploadUrl'] as String,
-        bytes,
-        mime,
-      );
       await _emitMediaMessage(
         type: kind == 'image' ? 'image' : 'file',
-        attachmentUrl: presign['attachmentUrl'] as String,
+        attachmentUrl: uploaded['attachmentUrl'] as String,
         attachmentMeta: {
           'mime': mime,
           'filename': filename,
@@ -328,6 +358,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
+  Future<void> _manageRoomPassword() async {
+    final value = await showRoomPasswordManageDialog(
+      context,
+      hasPassword: _roomHasPassword,
+    );
+    if (value == null || !mounted) return;
+    setState(() => _roomActionBusy = true);
+    try {
+      await ref.read(apiProvider).updateRoomPassword(
+            widget.roomId,
+            password: value.trim().isEmpty ? '' : value.trim(),
+          );
+      if (mounted) {
+        setState(() => _roomHasPassword = value.trim().isNotEmpty);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              value.trim().isEmpty ? '已取消房间密码' : '房间密码已更新',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_apiErrorMessage(e, '更新密码失败'))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _roomActionBusy = false);
+    }
+  }
+
   Future<void> _confirmLeaveRoom() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -341,7 +404,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('退出', style: TextStyle(color: AppTheme.primary)),
+            child: Text('退出', style: TextStyle(color: AppTheme.primary)),
           ),
         ],
       ),
@@ -387,7 +450,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Widget _buildBubble(ChatMessage m) {
-    final isMe = m.senderId == ref.read(authUserProvider)?.id;
+    final me = ref.read(authUserProvider);
+    final isMe = m.senderId == me?.id;
+    final displayName = m.senderName.isNotEmpty
+        ? m.senderName
+        : (isMe ? (me?.nickname ?? '') : '');
     final headers = _authHeaders ?? {};
     Widget body;
     switch (m.type) {
@@ -454,28 +521,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isMe) ...[
-            _senderAvatar(m.senderName),
+            _senderAvatar(displayName),
             const SizedBox(width: 8),
             Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4, left: 2),
-                    child: Text(
-                      m.senderName,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.subtitleGray,
+                  if (displayName.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4, left: 2),
+                      child: Text(
+                        displayName,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.subtitleGray,
+                        ),
                       ),
                     ),
-                  ),
                   bubble,
                 ],
               ),
             ),
           ] else ...[
-            Flexible(child: bubble),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (displayName.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4, right: 2),
+                      child: Text(
+                        displayName,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.subtitleGray,
+                        ),
+                      ),
+                    ),
+                  bubble,
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _senderAvatar(displayName),
           ],
         ],
       ),
@@ -506,9 +594,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         : (_loading ? '加载中…' : '聊天室');
     final hasText = _inputHasText;
 
-    return Scaffold(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.overlayFor(AppTheme.chatBackground),
+      child: Scaffold(
           backgroundColor: AppTheme.chatBackground,
           appBar: AppBar(
+            backgroundColor: AppTheme.chatBackground,
+            systemOverlayStyle: AppTheme.overlayFor(AppTheme.chatBackground),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back_ios_new, size: 20),
               onPressed: () => context.pop(),
@@ -533,22 +625,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 PopupMenuButton<String>(
                   enabled: !_roomActionBusy,
                   onSelected: (value) {
-                    if (value == 'delete') {
+                    if (value == 'password') {
+                      _manageRoomPassword();
+                    } else if (value == 'delete') {
                       _confirmDeleteRoom();
                     } else if (value == 'leave') {
                       _confirmLeaveRoom();
                     }
                   },
                   itemBuilder: (ctx) => [
-                    if (_isCreator)
+                    if (_isCreator) ...[
+                      const PopupMenuItem(
+                        value: 'password',
+                        child: Text('房间密码'),
+                      ),
                       const PopupMenuItem(
                         value: 'delete',
                         child: Text(
                           '删除聊天室',
                           style: TextStyle(color: Colors.red),
                         ),
-                      )
-                    else
+                      ),
+                    ] else
                       const PopupMenuItem(
                         value: 'leave',
                         child: Text('退出聊天室'),
@@ -558,9 +656,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             ],
           ),
           body: _loading
-              ? const Center(
-                  child:
-                      CircularProgressIndicator(color: AppTheme.primary),
+              ? Center(
+                  child: CircularProgressIndicator(color: AppTheme.primary),
                 )
               : Column(
                   children: [
@@ -575,6 +672,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     _buildInputBar(hasText),
                   ],
                 ),
+      ),
     );
   }
 

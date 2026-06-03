@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/message.dart';
 import '../providers/app_providers.dart';
+import '../services/socket_service.dart';
+import '../providers/unread_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/defer_set_state.dart';
 import '../widgets/create_room_fab.dart';
@@ -20,19 +23,56 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen>
     with DeferSetStateMixin {
   int _index = 0;
   final _conversationsKey = GlobalKey<ConversationsScreenState>();
+  MessageHandler? _unreadHandler;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _attachUnreadListener());
+  }
+
+  void _attachUnreadListener() {
+    if (_unreadHandler != null) return;
+    void onMessage(ChatMessage m) {
+      final userId = ref.read(authUserProvider)?.id;
+      ref.read(unreadProvider.notifier).onIncomingMessage(
+            roomId: m.roomId,
+            senderId: m.senderId,
+            myUserId: userId,
+          );
+      if (_index == 0) {
+        _conversationsKey.currentState?.reload(silent: true);
+      }
+    }
+    _unreadHandler = onMessage;
+    ref.read(socketProvider).onMessageNew(onMessage);
+  }
+
+  @override
+  void dispose() {
+    final handler = _unreadHandler;
+    if (handler != null) {
+      ref.read(socketProvider).offMessageNew(handler);
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final nickname = ref.watch(authUserProvider)?.nickname;
     final onMessagesTab = _index == 0;
+    final unreadMap = ref.watch(unreadProvider);
+    final hasUnread = unreadMap.values.any((c) => c > 0);
 
     return Scaffold(
-      backgroundColor: AppTheme.listBackground,
+      backgroundColor: AppTheme.navBar,
       appBar: AppBar(
+        backgroundColor: AppTheme.navBar,
+        systemOverlayStyle: AppTheme.systemUiOverlay,
         automaticallyImplyLeading: false,
         centerTitle: true,
-        title: Text(onMessagesTab ? '聊天室' : '我'),
+        title: Text(onMessagesTab ? 'FreeChat' : '我'),
         leading: onMessagesTab
             ? _nicknameLeading(context, nickname)
             : null,
@@ -71,6 +111,7 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen>
                     icon: Icons.chat_bubble_outline,
                     activeIcon: Icons.chat_bubble,
                     label: '消息',
+                    showBadge: hasUnread,
                   ),
                 ),
                 const SizedBox(width: CreateRoomFab.size + 24),
@@ -115,6 +156,7 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen>
     required IconData icon,
     required IconData activeIcon,
     required String label,
+    bool showBadge = false,
   }) {
     final selected = _index == index;
     final color = selected ? AppTheme.primary : AppTheme.tabInactive;
@@ -129,7 +171,25 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(selected ? activeIcon : icon, color: color, size: 26),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(selected ? activeIcon : icon, color: color, size: 26),
+                if (showBadge)
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFA5151),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 2),
             Text(
               label,

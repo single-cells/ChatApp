@@ -11,6 +11,7 @@ typedef RoomDeletedHandler = void Function(String roomId);
 class SocketService {
   io.Socket? _socket;
   String? _currentRoomId;
+  final Set<String> _joinedRooms = {};
   final List<MessageHandler> _messageHandlers = [];
   final List<PresenceHandler> _presenceHandlers = [];
   final List<RoomDeletedHandler> _roomDeletedHandlers = [];
@@ -21,31 +22,53 @@ class SocketService {
   bool get isConnected => _socket?.connected ?? false;
 
   Future<void> connect(String token, {String? deviceId}) async {
-    if (_socket?.connected == true) return;
+    if (_socket?.connected == true) {
+      _rejoinTrackedRooms();
+      return;
+    }
     _socket?.dispose();
     _coreListenersAttached = false;
     _presenceListenerAttached = false;
     _roomDeletedListenerAttached = false;
+
+    final connected = Completer<void>();
     _socket = io.io(
       AppConfig.wsUrl,
       io.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .enableAutoConnect()
+          .enableReconnection()
           .setAuth({
             'token': token,
             if (deviceId != null) 'deviceId': deviceId,
           })
           .build(),
     );
-    _socket!.onConnect((_) {
+    void onConnected(_) {
       _attachCoreListeners();
       _presenceListenerAttached = false;
       _attachPresenceListener();
-    });
+      _rejoinTrackedRooms();
+      if (!connected.isCompleted) connected.complete();
+    }
+
+    _socket!.onConnect(onConnected);
     _socket!.connect();
     if (_socket!.connected) {
-      _attachCoreListeners();
-      _attachPresenceListener();
+      onConnected(null);
+    } else {
+      await connected.future.timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {},
+      );
+    }
+  }
+
+  void _rejoinTrackedRooms() {
+    final socket = _socket;
+    if (socket == null || !socket.connected) return;
+    for (final roomId in _joinedRooms) {
+      socket.emit('room.join', {'roomId': roomId});
     }
   }
 
@@ -55,9 +78,13 @@ class SocketService {
     _socket!.off('message.new');
     _socket!.on('message.new', (data) {
       if (data is! Map) return;
-      final msg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
-      for (final h in List<MessageHandler>.from(_messageHandlers)) {
-        h(msg);
+      try {
+        final msg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
+        for (final h in List<MessageHandler>.from(_messageHandlers)) {
+          h(msg);
+        }
+      } catch (_) {
+        // Ignore malformed payloads from older servers or proxies.
       }
     });
   }
@@ -66,6 +93,7 @@ class SocketService {
     _socket?.dispose();
     _socket = null;
     _currentRoomId = null;
+    _joinedRooms.clear();
     _messageHandlers.clear();
     _presenceHandlers.clear();
     _roomDeletedHandlers.clear();
@@ -156,10 +184,12 @@ class SocketService {
 
   void joinRoom(String roomId) {
     _currentRoomId = roomId;
-    _socket?.emit('room.join', {'roomId': roomId});
+    _joinedRooms.add(roomId);
+    _rejoinTrackedRooms();
   }
 
   void leaveRoom(String roomId) {
+    _joinedRooms.remove(roomId);
     _socket?.emit('room.leave', {'roomId': roomId});
     if (_currentRoomId == roomId) _currentRoomId = null;
   }

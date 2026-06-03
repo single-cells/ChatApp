@@ -76,8 +76,14 @@ class ApiClient {
     }
   }
 
-  Future<RoomSummary> createRoom(String title) async {
-    final res = await _dio.post('/rooms', data: {'title': title});
+  Future<RoomSummary> createRoom(String title, {String? password}) async {
+    final res = await _dio.post(
+      '/rooms',
+      data: {
+        'title': title,
+        if (password != null && password.isNotEmpty) 'password': password,
+      },
+    );
     return RoomSummary.fromJson(res.data as Map<String, dynamic>);
   }
 
@@ -86,24 +92,54 @@ class ApiClient {
     return RoomSummary.fromJson(res.data as Map<String, dynamic>);
   }
 
-  Future<void> joinRoom(String roomId) async {
-    await _dio.post('/rooms/$roomId/join');
+  Future<void> joinRoom(String roomId, {String? password}) async {
+    await _dio.post(
+      '/rooms/$roomId/join',
+      data: {
+        if (password != null && password.isNotEmpty) 'password': password,
+      },
+    );
+  }
+
+  Future<void> updateRoomPassword(String roomId, {String? password}) async {
+    await _dio.patch(
+      '/rooms/$roomId/password',
+      data: {'password': password ?? ''},
+    );
   }
 
   Future<void> leaveRoom(String roomId) async {
     await _dio.post('/rooms/$roomId/leave');
   }
 
+  /// Remove local recent entry when the room no longer exists.
+  Future<void> dismissRoomMembership(String roomId) async {
+    await _dio.delete('/rooms/$roomId/membership');
+  }
+
   Future<void> deleteRoom(String roomId) async {
     await _dio.delete('/rooms/$roomId');
   }
 
-  Future<List<RoomSummary>> recentRooms() async {
+  Future<({List<RoomSummary> items, int prunedCount})> recentRooms() async {
     final res = await _dio.get('/rooms/recent');
-    final list = res.data as List<dynamic>;
-    return list
-        .map((e) => RoomSummary.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final data = res.data;
+    if (data is Map<String, dynamic>) {
+      final list = data['items'] as List<dynamic>? ?? [];
+      return (
+        items: list
+            .map((e) => RoomSummary.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        prunedCount: (data['prunedCount'] as num?)?.toInt() ?? 0,
+      );
+    }
+    final list = data as List<dynamic>;
+    return (
+      items: list
+          .map((e) => RoomSummary.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      prunedCount: 0,
+    );
   }
 
   Future<List<RoomSummary>> listAllRooms() async {
@@ -160,6 +196,28 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
+  /// Upload via API (avoids direct MinIO connection from the device).
+  Future<Map<String, dynamic>> uploadMedia({
+    required String roomId,
+    required List<int> bytes,
+    required String kind,
+    required String mime,
+    String? filename,
+  }) async {
+    final formData = FormData.fromMap({
+      'kind': kind,
+      'mime': mime,
+      if (filename != null) 'filename': filename,
+      'file': MultipartFile.fromBytes(
+        bytes,
+        filename: filename ?? 'upload',
+      ),
+    });
+    final res = await _dio.post('/rooms/$roomId/uploads', data: formData);
+    return res.data as Map<String, dynamic>;
+  }
+
+  @Deprecated('Use uploadMedia — presigned MinIO URLs are often unreachable on device')
   Future<void> uploadFile(String uploadUrl, List<int> bytes, String mime) async {
     await Dio().put(
       uploadUrl,
@@ -184,5 +242,17 @@ class ApiClient {
   Future<AuthUser> me() async {
     final res = await _dio.get('/auth/me');
     return AuthUser.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  Future<AuthUser> updateNickname(String nickname) async {
+    final res = await _dio.patch(
+      '/auth/nickname',
+      data: {'nickname': nickname},
+    );
+    return AuthUser.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteAccount() async {
+    await _dio.delete('/auth/account');
   }
 }

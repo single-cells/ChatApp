@@ -56,6 +56,36 @@ export class StorageService implements OnModuleInit {
     }
   }
 
+  async uploadObject(
+    roomId: string,
+    userId: string,
+    kind: 'image' | 'file' | 'voice',
+    mime: string,
+    body: Buffer,
+    filename?: string,
+  ) {
+    const allowed = ALLOWED_MIME[kind];
+    if (!allowed?.includes(mime)) {
+      throw new Error(`MIME type not allowed: ${mime}`);
+    }
+    const ext = filename?.split('.').pop() ?? mime.split('/')[1] ?? 'bin';
+    const key = `rooms/${roomId}/${userId}/${uuid()}.${ext}`;
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: mime,
+      }),
+    );
+    const apiPublic = this.config.get(
+      'API_PUBLIC_URL',
+      `http://localhost:${this.config.get('PORT', '3000')}`,
+    );
+    const attachmentUrl = `${apiPublic.replace(/\/$/, '')}/media/object?key=${encodeURIComponent(key)}`;
+    return { attachmentUrl, key };
+  }
+
   async presign(
     roomId: string,
     userId: string,

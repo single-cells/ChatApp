@@ -4,12 +4,15 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CreateRoomDto } from './dto/create-room.dto';
+import { JoinRoomDto } from './dto/join-room.dto';
+import { UpdateRoomPasswordDto } from './dto/update-room-password.dto';
 import { RoomsService } from './rooms.service';
 
 @Controller('rooms')
@@ -54,8 +57,18 @@ export class RoomsController {
   join(
     @Param('roomId') roomId: string,
     @Req() req: { user: { userId: string } },
+    @Body() dto: JoinRoomDto,
   ) {
-    return this.rooms.join(roomId, req.user.userId);
+    return this.rooms.join(roomId, req.user.userId, dto.password);
+  }
+
+  @Patch(':roomId/password')
+  updatePassword(
+    @Param('roomId') roomId: string,
+    @Req() req: { user: { userId: string } },
+    @Body() dto: UpdateRoomPasswordDto,
+  ) {
+    return this.rooms.updatePassword(roomId, req.user.userId, dto.password);
   }
 
   @Post(':roomId/leave')
@@ -64,6 +77,14 @@ export class RoomsController {
     @Req() req: { user: { userId: string } },
   ) {
     return this.rooms.leaveRoom(roomId, req.user.userId);
+  }
+
+  @Delete(':roomId/membership')
+  dismissMembership(
+    @Param('roomId') roomId: string,
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.rooms.dismissMembership(roomId, req.user.userId);
   }
 
   @Delete(':roomId')

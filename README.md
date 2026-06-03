@@ -77,11 +77,27 @@ flutter run --dart-define=API_BASE_URL=http://localhost:3000 --dart-define=WS_UR
 
 > Android 模拟器请用 `http://10.0.2.2:3000` 替代 localhost。
 
+### 电脑连远程服务器（与 APK 相同配置）
+
+无需本机 Docker/API，读取 `deploy/.env` 中的 `CORS_ORIGIN`、`CLIENT_APP_SECRET`：
+
+```powershell
+.\scripts\run-flutter-remote.ps1
+```
+
+默认 Windows 桌面版；自签名 HTTPS 需 `deploy/.env` 中 `ALLOW_INSECURE_SSL=true`（与打 APK 一致）。
+
+### 发版与自动更新（默认关闭入口）
+
+OTA 与 `/releases/` 下载逻辑已保留，但**默认关闭**（省带宽）：`ENABLE_APP_UPDATE=false`，Nginx `/releases/` 返回 503。恢复方式见 [`DEPLOY.md`](DEPLOY.md)。
+
 ## 主要 API
 
 | 方法 | 路径 |
 |------|------|
 | POST | `/auth/device`（主登录）, `/auth/login`, `/auth/register`（调试） |
+| GET | `/auth/me` |
+| PATCH | `/auth/nickname`（每天每用户仅可改一次） |
 | POST | `/rooms` |
 | GET | `/rooms/:roomId`, `/rooms/recent` |
 | POST | `/rooms/:roomId/join` |

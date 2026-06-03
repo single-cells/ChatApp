@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 class StorageService {
   final _storage = const FlutterSecureStorage();
   static const _deviceIdKey = 'device_id';
+  static const _themePresetKey = 'theme_preset_id';
 
   Future<void> saveTokens({
     required String accessToken,
@@ -28,7 +29,12 @@ class StorageService {
     return id;
   }
 
-  /// Clears session tokens only; keeps [device_id] so re-login is same user.
+  /// Clears session tokens only; keeps [device_id] for the next device login.
+  Future<String?> getThemePresetId() => _storage.read(key: _themePresetKey);
+
+  Future<void> saveThemePresetId(String id) =>
+      _storage.write(key: _themePresetKey, value: id);
+
   Future<void> clearAuth() async {
     await _storage.delete(key: 'access_token');
     await _storage.delete(key: 'refresh_token');

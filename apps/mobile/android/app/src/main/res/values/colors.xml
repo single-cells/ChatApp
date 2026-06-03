@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches AppTheme.navBar — window/status bar before Flutter paints -->
+    <color name="status_bar_background">#FFF9FAFB</color>
+</resources>

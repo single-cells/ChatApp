@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/app_providers.dart';
 import '../theme/app_theme.dart';
+import '../utils/room_open_errors.dart';
+import 'room_password_dialog.dart';
 
 /// Create / join room flows (used by FAB and list screen).
 class RoomActionsSheet {
@@ -61,7 +63,7 @@ class RoomActionsSheet {
                   color: AppTheme.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.login, color: AppTheme.primary),
+                child: Icon(Icons.login, color: AppTheme.primary),
               ),
               title: const Text('加入聊天室'),
               subtitle: const Text('输入房间 ID 进入已有房间'),
@@ -101,6 +103,7 @@ class RoomActionsSheet {
 
     if (!context.mounted) return;
     final ctrl = TextEditingController(text: '新聊天室');
+    final pwdCtrl = TextEditingController();
     final quotaHint = quota != null
         ? '还可创建 ${quota.max - quota.count} 个（上限 ${quota.max} 个）'
         : '';
@@ -129,6 +132,14 @@ class RoomActionsSheet {
               decoration: const InputDecoration(hintText: '房间名称'),
               autofocus: true,
             ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: pwdCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                hintText: '房间密码（可选）',
+              ),
+            ),
           ],
         ),
         actions: [
@@ -142,7 +153,11 @@ class RoomActionsSheet {
               Navigator.pop(ctx);
               if (t.isEmpty) return;
               try {
-                final room = await ref.read(apiProvider).createRoom(t);
+                final pwd = pwdCtrl.text.trim();
+                final room = await ref.read(apiProvider).createRoom(
+                      t,
+                      password: pwd.isNotEmpty ? pwd : null,
+                    );
                 onRoomsChanged?.call();
                 if (context.mounted) {
                   await _openChat(
@@ -166,8 +181,7 @@ class RoomActionsSheet {
                 }
               }
             },
-            child: const Text('创建',
-                style: TextStyle(color: AppTheme.primary)),
+            child: Text('创建', style: TextStyle(color: AppTheme.primary)),
           ),
         ],
       ),
@@ -201,12 +215,48 @@ class RoomActionsSheet {
               if (id.isEmpty) return;
               await _openChat(context, ref, roomId: id, onRoomsChanged: onRoomsChanged);
             },
-            child: const Text('进入',
-                style: TextStyle(color: AppTheme.primary)),
+            child: Text('进入', style: TextStyle(color: AppTheme.primary)),
           ),
         ],
       ),
     );
+  }
+
+  static Future<bool> _joinWithPasswordPrompt(
+    BuildContext context,
+    WidgetRef ref, {
+    required String roomId,
+    String? password,
+  }) async {
+    final api = ref.read(apiProvider);
+    try {
+      await api.joinRoom(roomId, password: password);
+      return true;
+    } catch (e) {
+      if (!context.mounted) return false;
+      if (isRoomPasswordRequired(e)) {
+        var invalidHint = '';
+        for (var attempt = 0; attempt < 5; attempt++) {
+          final pwd = await showRoomPasswordDialog(
+            context,
+            errorText: invalidHint.isEmpty ? null : invalidHint,
+          );
+          if (pwd == null || !context.mounted) return false;
+          try {
+            await api.joinRoom(roomId, password: pwd);
+            return true;
+          } catch (retry) {
+            if (isRoomPasswordInvalid(retry)) {
+              invalidHint = '密码错误，请重试';
+              continue;
+            }
+            rethrow;
+          }
+        }
+        return false;
+      }
+      rethrow;
+    }
   }
 
   static Future<void> _openChat(
@@ -218,7 +268,12 @@ class RoomActionsSheet {
   }) async {
     try {
       final api = ref.read(apiProvider);
-      await api.joinRoom(roomId);
+      final joined = await _joinWithPasswordPrompt(
+        context,
+        ref,
+        roomId: roomId,
+      );
+      if (!joined) return;
       var roomTitle = title?.trim() ?? '';
       if (roomTitle.isEmpty) {
         try {
@@ -236,12 +291,41 @@ class RoomActionsSheet {
         await context.push('/chat/$roomId$q');
       }
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('进入失败: $e')),
-        );
-      }
+      if (!context.mounted) return;
+      final removed = await _handleMissingRoom(
+        ref,
+        roomId: roomId,
+        error: e,
+        onRoomsChanged: onRoomsChanged,
+        snackContext: context,
+      );
+      if (!context.mounted) return;
+      if (removed) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('进入失败: $e')),
+      );
     }
+  }
+
+  static Future<bool> _handleMissingRoom(
+    WidgetRef ref, {
+    required String roomId,
+    required Object error,
+    VoidCallback? onRoomsChanged,
+    BuildContext? snackContext,
+  }) async {
+    if (!isRoomMissingError(error)) return false;
+    try {
+      await ref.read(apiProvider).dismissRoomMembership(roomId);
+    } catch (_) {}
+    onRoomsChanged?.call();
+    final ctx = snackContext;
+    if (ctx != null && ctx.mounted) {
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        const SnackBar(content: Text('该聊天室已不存在，已从最近列表移除')),
+      );
+    }
+    return true;
   }
 
   /// Navigate to chat with known room title (from list).

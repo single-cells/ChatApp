@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../bootstrap.dart';
 import '../models/auth_session.dart';
@@ -89,31 +90,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final needsNickname = ref.watch(needsNicknameProvider);
 
     if (!authReady || (token != null && !needsNickname)) {
-      return const Scaffold(
-        body: DecoratedBox(
-          decoration: BoxDecoration(gradient: AppTheme.subtleGradient),
-          child: Center(
-            child: CircularProgressIndicator(color: AppTheme.primary),
-          ),
+      return _loginScaffold(
+        Center(
+          child: CircularProgressIndicator(color: AppTheme.primary),
         ),
       );
     }
 
     if (token != null) {
-      return const Scaffold(
-        body: DecoratedBox(
-          decoration: BoxDecoration(gradient: AppTheme.subtleGradient),
-          child: Center(
-            child: CircularProgressIndicator(color: AppTheme.primary),
-          ),
+      return _loginScaffold(
+        Center(
+          child: CircularProgressIndicator(color: AppTheme.primary),
         ),
       );
     }
 
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(gradient: AppTheme.subtleGradient),
-        child: SafeArea(
+    return _loginScaffold(
+        SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 28),
             child: Column(
@@ -134,7 +127,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   shaderCallback: (bounds) =>
                       AppTheme.brandGradient.createShader(bounds),
                   child: const Text(
-                    '聊天室',
+                    'FreeChat',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 28,
@@ -203,11 +196,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ],
                       const SizedBox(height: 24),
                       GradientButton(
-                        onPressed: _loading ? null : _submit,
-                        enabled: !_loading,
-                        child: Text(
-                          _loading ? '...' : '进入',
-                          style: const TextStyle(
+                        onPressed: _submit,
+                        isLoading: _loading,
+                        child: const Text(
+                          '进入',
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: Colors.white,
@@ -221,7 +214,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
           ),
         ),
-      ),
     );
   }
+}
+
+Widget _loginScaffold(Widget body) {
+  return AnnotatedRegion<SystemUiOverlayStyle>(
+    value: AppTheme.overlayFor(AppTheme.statusBarGradientTop),
+    child: Scaffold(
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: AppTheme.subtleGradient),
+        child: body,
+      ),
+    ),
+  );
 }

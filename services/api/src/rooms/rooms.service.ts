@@ -3,8 +3,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcrypt';
 import { RoomRealtimeNotifier } from '../common/room-realtime.notifier';
 import { RedisService } from '../common/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +23,40 @@ export class RoomsService {
     private roomNotifier: RoomRealtimeNotifier,
   ) {}
 
+  private roomHasPassword(passwordHash: string | null | undefined) {
+    return !!passwordHash;
+  }
+
+  private async hashPassword(password: string) {
+    return bcrypt.hash(password, 10);
+  }
+
+  private async verifyPassword(password: string, hash: string) {
+    return bcrypt.compare(password, hash);
+  }
+
+  private toRoomDto(room: {
+    id: string;
+    title: string;
+    createdAt: Date;
+    createdBy: string;
+    passwordHash?: string | null;
+    _count?: { members: number };
+    creator?: { nickname: string };
+  }) {
+    return {
+      roomId: room.id,
+      title: room.title,
+      createdAt: room.createdAt,
+      createdBy: room.createdBy,
+      hasPassword: this.roomHasPassword(room.passwordHash),
+      ...(room._count
+        ? { memberCount: room._count.members }
+        : {}),
+      ...(room.creator ? { creatorNickname: room.creator.nickname } : {}),
+    };
+  }
+
   async create(userId: string, dto: CreateRoomDto) {
     const createdCount = await this.prisma.room.count({
       where: { createdBy: userId },
@@ -30,16 +66,22 @@ export class RoomsService {
         `每人最多创建 ${MAX_ROOMS_PER_USER} 个聊天室`,
       );
     }
+    const password = dto.password?.trim();
+    const passwordHash =
+      password && password.length > 0
+        ? await this.hashPassword(password)
+        : null;
     const room = await this.prisma.room.create({
       data: {
         title: dto.title,
         createdBy: userId,
+        passwordHash,
         members: {
           create: { userId },
         },
       },
     });
-    return { roomId: room.id, title: room.title, createdAt: room.createdAt };
+    return this.toRoomDto(room);
   }
 
   async findOne(roomId: string) {
@@ -50,26 +92,83 @@ export class RoomsService {
     if (!room) {
       throw new NotFoundException('Room not found');
     }
-    return {
-      roomId: room.id,
-      title: room.title,
-      memberCount: room._count.members,
-      createdAt: room.createdAt,
-      createdBy: room.createdBy,
-    };
+    return this.toRoomDto({ ...room, _count: room._count });
   }
 
-  async join(roomId: string, userId: string) {
-    await this.ensureRoom(roomId);
-    await this.prisma.roomMember.upsert({
+  async join(roomId: string, userId: string, password?: string) {
+    const room = await this.ensureRoom(roomId);
+    const existing = await this.prisma.roomMember.findUnique({
       where: { roomId_userId: { roomId, userId } },
-      create: { roomId, userId },
-      update: { joinedAt: new Date() },
+    });
+    if (existing) {
+      return { roomId, joined: true };
+    }
+    if (this.roomHasPassword(room.passwordHash)) {
+      const provided = password?.trim() ?? '';
+      if (!provided) {
+        throw new UnauthorizedException({
+          code: 'ROOM_PASSWORD_REQUIRED',
+          message: '需要输入房间密码',
+        });
+      }
+      const ok = await this.verifyPassword(provided, room.passwordHash!);
+      if (!ok) {
+        throw new UnauthorizedException({
+          code: 'ROOM_PASSWORD_INVALID',
+          message: '房间密码错误',
+        });
+      }
+    }
+    await this.prisma.roomMember.create({
+      data: { roomId, userId },
     });
     return { roomId, joined: true };
   }
 
+  async updatePassword(roomId: string, userId: string, rawPassword?: string) {
+    const room = await this.ensureRoom(roomId);
+    if (room.createdBy !== userId) {
+      throw new ForbiddenException('Only the room creator can change password');
+    }
+    const password = rawPassword?.trim() ?? '';
+    const passwordHash =
+      password.length > 0 ? await this.hashPassword(password) : null;
+    await this.prisma.room.update({
+      where: { id: roomId },
+      data: { passwordHash },
+    });
+    return {
+      roomId,
+      hasPassword: this.roomHasPassword(passwordHash),
+    };
+  }
+
+  /** Drop recent-list rows whose room was deleted (e.g. by creator). */
+  private async pruneStaleMemberships(userId: string): Promise<number> {
+    const memberships = await this.prisma.roomMember.findMany({
+      where: { userId },
+      select: { roomId: true },
+    });
+    if (memberships.length === 0) return 0;
+
+    const roomIds = memberships.map((m) => m.roomId);
+    const existing = await this.prisma.room.findMany({
+      where: { id: { in: roomIds } },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map((r) => r.id));
+    const staleIds = roomIds.filter((id) => !existingIds.has(id));
+    if (staleIds.length === 0) return 0;
+
+    const result = await this.prisma.roomMember.deleteMany({
+      where: { userId, roomId: { in: staleIds } },
+    });
+    return result.count;
+  }
+
   async recent(userId: string) {
+    const prunedCount = await this.pruneStaleMemberships(userId);
+
     const memberships = await this.prisma.roomMember.findMany({
       where: { userId },
       include: {
@@ -91,6 +190,8 @@ export class RoomsService {
         roomId: m.room.id,
         title: m.room.title,
         memberCount: m.room._count.members,
+        createdBy: m.room.createdBy,
+        hasPassword: this.roomHasPassword(m.room.passwordHash),
         joinedAt: m.joinedAt,
         lastMessagePreview: last ? this.messagePreview(last) : null,
         lastMessageSender: last?.sender.nickname ?? null,
@@ -98,11 +199,14 @@ export class RoomsService {
       };
     });
     items.sort((a, b) => {
+      const aOwn = a.createdBy === userId;
+      const bOwn = b.createdBy === userId;
+      if (aOwn !== bOwn) return aOwn ? -1 : 1;
       const ta = (a.lastMessageAt ?? a.joinedAt) as Date;
       const tb = (b.lastMessageAt ?? b.joinedAt) as Date;
       return tb.getTime() - ta.getTime();
     });
-    return items.slice(0, 20);
+    return { items: items.slice(0, 20), prunedCount };
   }
 
   async listAll() {
@@ -114,13 +218,13 @@ export class RoomsService {
         creator: { select: { nickname: true } },
       },
     });
-    return rooms.map((room) => ({
-      roomId: room.id,
-      title: room.title,
-      memberCount: room._count.members,
-      createdAt: room.createdAt,
-      creatorNickname: room.creator.nickname,
-    }));
+    return rooms.map((room) =>
+      this.toRoomDto({
+        ...room,
+        _count: room._count,
+        creator: room.creator,
+      }),
+    );
   }
 
   async createdQuota(userId: string) {
@@ -138,6 +242,13 @@ export class RoomsService {
     await this.prisma.room.delete({ where: { id: roomId } });
     await this.roomNotifier.notifyRoomRemoved(roomId);
     return { roomId, deleted: true };
+  }
+
+  async dismissMembership(roomId: string, userId: string) {
+    await this.prisma.roomMember.deleteMany({
+      where: { roomId, userId },
+    });
+    return { roomId, dismissed: true };
   }
 
   async leaveRoom(roomId: string, userId: string) {
@@ -197,9 +308,7 @@ export class RoomsService {
       where: { roomId_userId: { roomId, userId } },
     });
     if (!member) {
-      await this.prisma.roomMember.create({
-        data: { roomId, userId },
-      });
+      throw new ForbiddenException('Not a member of this room');
     }
   }
 

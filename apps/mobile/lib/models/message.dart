@@ -36,8 +36,8 @@ class ChatMessage {
       content: json['content'] as String? ?? '',
       attachmentUrl: json['attachmentUrl'] as String?,
       attachmentMeta: json['attachmentMeta'] as Map<String, dynamic>?,
-      seq: json['seq'] as int,
-      createdAt: json['createdAt'] as String,
+      seq: (json['seq'] as num).toInt(),
+      createdAt: json['createdAt']?.toString() ?? '',
     );
   }
 

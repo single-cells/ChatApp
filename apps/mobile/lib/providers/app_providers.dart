@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/room.dart';
 import '../services/api_client.dart';
+import '../services/app_update_service.dart';
 import '../services/socket_service.dart';
 import '../services/storage_service.dart';
 
@@ -9,6 +10,8 @@ final storageProvider = Provider((ref) => StorageService());
 final apiProvider = Provider(
   (ref) => ApiClient(ref.watch(storageProvider)),
 );
+
+final appUpdateServiceProvider = Provider((ref) => AppUpdateService());
 
 final socketProvider = Provider((ref) {
   final s = SocketService();
